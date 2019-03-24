@@ -3,21 +3,49 @@ yargs = require 'yargs'
 chalk = require 'chalk'
 exiftool = require('exiftool-vendored').exiftool
 glob = require 'glob'
+mysql = require 'mysql2/promise'
+{ renameSync } = require 'fs'
+
+# Global vars
+db = null
 
 # Entry point
 handler = ({ keep, remove, trash }) ->
 	console.log chalk.magenta "Starting –––––––––––––––––––––––––––––––––––––––––"
+	db = await connectToDb()
 	await indexDir keep
 	await indexDir remove
+	await dedupe keep, remove, trash
 		
+# Create DB connection
+connectToDb = -> mysql.createConnection
+	host: '127.0.0.1'
+	user: 'root'
+	database: 'dedupe-by-exif-date'
+	# debug: true
+
 # Index a directory of media
 indexDir = (dir) ->
-	console.log chalk.yellow "Indexing: #{chalk.white(dir)}"
-	for file in await listFiles dir
-		console.log "Processing: #{file}"
+	console.log chalk.yellow "Indexing #{chalk.white(dir)}"
+	files = await listFiles dir
+	for file, i in files
+		console.log chalk.green "Processing #{i+1}/#{files.length}: 
+			#{chalk.white.dim(file)}"
+		
+		# Check if already in the database
+		[ rows ] = await db.query 'SELECT * FROM files WHERE file = ?', file
+		if rows.length
+			console.log chalk.green.dim "- Skipping, created is #{rows[0].created}"
+			continue
+		
+		# Get the creation time
 		tags = await exiftool.read file
 		created = getTime tags.CreateDate
-		console.log "Created at: #{created}"
+		console.log chalk.green.dim "- Created: #{created}"
+		
+		# Add it to database
+		await db.query 'INSERT INTO files SET file = ?, created = ?', 
+		[file, created]
 
 # Get all files in a dir recursively
 listFiles = (dir) -> new Promise (resolve) -> 
@@ -28,7 +56,42 @@ listFiles = (dir) -> new Promise (resolve) ->
 getTime = (d) ->
 	date = new Date d.year, d.month - 1, d.day, d.hour, d.minute, d.second, 
 		d.millisecond
-	date.getTime() 
+	date.getTime()
+	
+# Loop through all the indexed files from keep and find instances in remove with
+# the same created date.  Move the 'remove' versions to the trash
+dedupe = (keep, remove, trash) ->
+	
+	# Get all keep records
+	[keeps] = await db.query 'SELECT * FROM files WHERE file LIKE ?', "#{keep}%"
+	console.log chalk.yellow "Deduping #{chalk.white("#{keeps.length} files")}"
+	for keep, i in keeps
+		console.log chalk.green "Deduping #{i+1}/#{keeps.length}: 
+			#{chalk.white.dim(keep.file)}"
+		
+		# Get all the remove records with the same timestmap
+		[removes] = await db.query 'SELECT * FROM files WHERE id != ? && created = ?', 
+			[keep.id, keep.created]
+		
+		# If only one match, move it
+		if removes.length == 1
+			removePath = removes[0].file
+			trashPath = removePath.replace remove, trash
+			console.log chalk.green.dim "- Found 1 match"
+			console.log chalk.green.dim "- Moving #{removePath}"
+			console.log chalk.green.dim "- To #{trashPath}"
+			renameSync removePath, trashPath
+			
+			# Keep the DB up to date
+			console.log chalk.green.dim "- Deleting `#{removes[0].id}` from DB"
+			await db.query 'DELETE FROM files WHERE id = ?', removes[0].id
+		
+		# If more than one match, raise an alert about it
+		else if removes.length > 1
+			console.log chalk.red "- Found #{removes.length} matches, help!"
+		
+		# Else, no matches found
+		else console.log chalk.green.dim "- Found 0 matches, skipping"
 
 # Expose CLI interface
 yargs
