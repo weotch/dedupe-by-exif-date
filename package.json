@@ -11,5 +11,8 @@
     "glob": "^7.1.3",
     "mysql2": "^1.6.5",
     "yargs": "^13.2.2"
+  },
+  "peerDependencies": {
+    "coffeescript": "^2.3.2"
   }
 }
