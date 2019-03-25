@@ -40,8 +40,13 @@ indexDir = (dir) ->
 		
 		# Get the creation time
 		tags = await exiftool.read file
-		created = getTime tags.CreateDate
-		console.log chalk.green.dim "- Created: #{created}"
+		if date = tags.CreateDate || tags.ModifyDate
+			created = getTime date
+			console.log chalk.green.dim "- Created: #{created}"
+		else
+			console.log chalk.red "- No date found"
+			await logError file, 'No date', JSON.stringify tags
+			continue
 		
 		# Add it to database
 		await db.query 'INSERT INTO files SET file = ?, created = ?', 
@@ -89,9 +94,16 @@ dedupe = (keep, remove, trash) ->
 		# If more than one match, raise an alert about it
 		else if removes.length > 1
 			console.log chalk.red "- Found #{removes.length} matches, help!"
+			matches = removes.map (remove) -> remove.file
+			await logError keep.file, 'Multiple matches', matches.join(',')
 		
 		# Else, no matches found
 		else console.log chalk.green.dim "- Found 0 matches, skipping"
+
+# Log an error
+logError = (file, type, extra) ->
+	db.query 'INSERT INTO errors SET file = ?, type = ?, extra = ?', 
+		[file, type, extra]
 
 # Expose CLI interface
 yargs
