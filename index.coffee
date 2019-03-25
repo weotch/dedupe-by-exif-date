@@ -75,22 +75,22 @@ dedupe = (keep, remove, trash) ->
 			#{chalk.white.dim(keep.file)}"
 		
 		# Get all the remove records with the same timestmap
-		[removes] = await db.query 'SELECT * FROM files WHERE id != ? && created = ?', 
+		[matches] = await db.query 'SELECT * FROM files WHERE id != ? && created = ?', 
 			[keep.id, keep.created]
 		
 		# If only one match, move it
-		if removes.length > 0
-			console.log chalk.green.dim "- Found #{removes.length} match(es)"
-			for remove in removes
-				removePath = remove.file
+		if matches.length > 0
+			console.log chalk.green.dim "- Found #{matches.length} match(es)"
+			for match in matches
+				removePath = match.file
 				trashPath = removePath.replace remove, trash
 				console.log chalk.green.dim "- Moving #{removePath}"
 				console.log chalk.green.dim "- To #{trashPath}"
 				renameSync removePath, trashPath
 				
 				# Keep the DB up to date
-				console.log chalk.green.dim "- Deleting `#{remove.id}` from DB"
-				await db.query 'DELETE FROM files WHERE id = ?', remove.id
+				console.log chalk.green.dim "- Deleting `#{match.id}` from DB"
+				await db.query 'DELETE FROM files WHERE id = ?', match.id
 		
 		# Else, no matches found
 		else console.log chalk.green.dim "- Found 0 matches, skipping"
