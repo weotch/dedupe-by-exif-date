@@ -79,23 +79,18 @@ dedupe = (keep, remove, trash) ->
 			[keep.id, keep.created]
 		
 		# If only one match, move it
-		if removes.length == 1
-			removePath = removes[0].file
-			trashPath = removePath.replace remove, trash
-			console.log chalk.green.dim "- Found 1 match"
-			console.log chalk.green.dim "- Moving #{removePath}"
-			console.log chalk.green.dim "- To #{trashPath}"
-			renameSync removePath, trashPath
-			
-			# Keep the DB up to date
-			console.log chalk.green.dim "- Deleting `#{removes[0].id}` from DB"
-			await db.query 'DELETE FROM files WHERE id = ?', removes[0].id
-		
-		# If more than one match, raise an alert about it
-		else if removes.length > 1
-			console.log chalk.red "- Found #{removes.length} matches, help!"
-			matches = removes.map (remove) -> remove.file
-			await logError keep.file, 'Multiple matches', matches.join(',')
+		if removes.length > 0
+			console.log chalk.green.dim "- Found #{removes.length} match(es)"
+			for remove in removes
+				removePath = remove.file
+				trashPath = removePath.replace remove, trash
+				console.log chalk.green.dim "- Moving #{removePath}"
+				console.log chalk.green.dim "- To #{trashPath}"
+				renameSync removePath, trashPath
+				
+				# Keep the DB up to date
+				console.log chalk.green.dim "- Deleting `#{remove.id}` from DB"
+				await db.query 'DELETE FROM files WHERE id = ?', remove.id
 		
 		# Else, no matches found
 		else console.log chalk.green.dim "- Found 0 matches, skipping"
