@@ -40,9 +40,8 @@ indexDir = (dir) ->
 		
 		# Get the creation time
 		tags = await exiftool.read file
-		if date = tags.CreateDate || tags.ModifyDate
-			created = getTime date
-			console.log chalk.green.dim "- Created: #{created}"
+		if (date = tags.CreateDate || tags.ModifyDate) and (created = getTime date)
+		then console.log chalk.green.dim "- Created: #{created}"
 		else
 			console.log chalk.red "- No date found"
 			await logError file, 'No date', JSON.stringify tags
