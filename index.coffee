@@ -4,7 +4,7 @@ chalk = require 'chalk'
 exiftool = require('exiftool-vendored').exiftool
 glob = require 'glob'
 mysql = require 'mysql2/promise'
-{ renameSync } = require 'fs'
+{ renameSync, statSync, existsSync } = require 'fs'
 
 # Global vars
 db = null
@@ -73,19 +73,40 @@ dedupe = (keep, remove, trash) ->
 		console.log chalk.green "Deduping #{i+1}/#{keeps.length}: 
 			#{chalk.white.dim(keep.file)}"
 		
+		# Verify the file still exists.  It may not in the case that a previous
+		# match was for the same dir path and this file was smaller than another
+		unless existsSync keep.file
+			console.log chalk.green.dim '- No longer exists'
+			continue
+		
+		# Make sure file has IMG_ in it, I had issues when searching my the archive
+		# for the oldest files with non-dupe files that had the same name
+		unless keep.file.indexOf('IMG_') > 0
+			console.log chalk.green.dim '- Non-"IMG_"'
+			continue
+		
 		# Get all the remove records with the same timestmap
 		[matches] = await db.query 'SELECT * FROM files WHERE id != ? && created = ?', 
 			[keep.id, keep.created]
 		
-		# If only one match, move it
+		# Move matches to the trash
 		if matches.length > 0
 			console.log chalk.green.dim "- Found #{matches.length} match(es)"
 			for match in matches
-				removePath = match.file
-				trashPath = removePath.replace remove, trash
-				console.log chalk.green.dim "- Moving #{removePath}"
+				trashPath = match.file.replace remove, trash
+				
+				# If the keep and remove paths are the same, keep the larger file.
+				if keep.file.indexOf(remove) == match.file.indexOf(remove) and
+				statSync(match.file)['size'] > statSync(keep.file)['size']
+					console.log chalk.green.dim "- Match was bigger, swappping"
+					temp = keep
+					keep = match
+					match = temp
+				
+				# Move the "match"
+				console.log chalk.green.dim "- Moving #{match.file}"
 				console.log chalk.green.dim "- To #{trashPath}"
-				renameSync removePath, trashPath
+				renameSync match.file, trashPath
 				
 				# Keep the DB up to date
 				console.log chalk.green.dim "- Deleting `#{match.id}` from DB"
